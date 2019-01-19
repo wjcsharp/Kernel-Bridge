@@ -124,7 +124,7 @@ bool PhysicalMemoryTest::RunTest() {
         }
 
         WdkTypes::PVOID VirtualAddress = NULL;
-        Status = KbMapPhysicalMemory(PhysicalAddress, sizeof(Value), &VirtualAddress);
+        Status = KbMapPhysicalMemory(PhysicalAddress, sizeof(Value), WdkTypes::MmNonCached, &VirtualAddress);
         if (!Status) Log(L"KbMapPhysicalMemory == FALSE");
 
         Mdl::MAPPING_INFO MappingInfo = {};
@@ -144,13 +144,13 @@ bool PhysicalMemoryTest::RunTest() {
         KbUnmapMemory(&MappingInfo);
 
         UINT64 Buffer = 0;
-        Status = KbReadPhysicalMemory(PhysicalAddress, &Buffer, sizeof(Buffer));
+        Status = KbReadPhysicalMemory(PhysicalAddress, &Buffer, sizeof(Buffer), WdkTypes::MmNonCached);
         if (!Status) Log(L"KbReadPhysicalMemory == FALSE");
 
         if (Buffer != Value) Log(L"Buffer != Value");
 
         Buffer = 0x900DDA7E;
-        Status = KbWritePhysicalMemory(PhysicalAddress, &Buffer, sizeof(Buffer));
+        Status = KbWritePhysicalMemory(PhysicalAddress, &Buffer, sizeof(Buffer), WdkTypes::MmNonCached);
         if (!Status) Log(L"KbWritePhysicalMemory == FALSE");
 
         if (Value != Buffer) Log(L"Value != Buffer 0x900DDA7E");
@@ -222,12 +222,14 @@ bool ProcessesTest::RunTest() {
         if (!Status) Log(L"KbFreeUserMemory == FALSE");
     }
 
+
+
     TestStatus &= KbQueueUserApc(
         ThreadId, 
-        [](PVOID Argument) -> VOID {
+        reinterpret_cast<WdkTypes::PVOID>(&[](PVOID Argument) -> VOID {
             std::cout << " > Called from APC: " << Argument << std::endl;
-        }, 
-        reinterpret_cast<PVOID>(0x12345)
+        }),
+        static_cast<WdkTypes::PVOID>(0x12345)
     );
 
     return static_cast<bool>(TestStatus);

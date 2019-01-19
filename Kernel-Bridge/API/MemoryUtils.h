@@ -41,6 +41,14 @@ namespace VirtualMemory {
     _IRQL_requires_max_(APC_LEVEL)
     VOID FreeNonCachedMemory(PVOID Address, SIZE_T Bytes);
 
+    BOOLEAN CopyMemory(
+        PVOID Dest, 
+        PVOID Src, 
+        SIZE_T Size, 
+        BOOLEAN Intersects = FALSE, 
+        OPTIONAL BOOLEAN CheckBuffersPresence = FALSE
+    );
+
     // Secure user memory from page rights descending or memory freeing:
     _IRQL_requires_max_(APC_LEVEL)
     BOOLEAN SecureMemory(
@@ -143,11 +151,20 @@ namespace PhysicalMemory {
     PVOID AllocPhysicalMemory(PVOID64 HighestAcceptableAddress, SIZE_T Size);
 
     _IRQL_requires_max_(DISPATCH_LEVEL)
+    PVOID AllocPhysicalMemorySpecifyCache(
+        PVOID64 LowestAcceptableAddress,
+        PVOID64 HighestAcceptableAddress,
+        PVOID64 BoundaryAddressMultiple,
+        SIZE_T Size,
+        MEMORY_CACHING_TYPE CachingType
+    );
+
+    _IRQL_requires_max_(DISPATCH_LEVEL)
     VOID FreePhysicalMemory(PVOID BaseVirtualAddress);
 
     // Map physical address-space to virtual memory:
     _IRQL_requires_max_(DISPATCH_LEVEL)
-    PVOID MapPhysicalMemory(PVOID64 PhysicalAddress, SIZE_T Size);
+    PVOID MapPhysicalMemory(PVOID64 PhysicalAddress, SIZE_T Size, MEMORY_CACHING_TYPE CachingType);
 
     _IRQL_requires_max_(DISPATCH_LEVEL)
     VOID UnmapPhysicalMemory(PVOID64 MappedPhysicalMemory, SIZE_T Size);
@@ -156,11 +173,13 @@ namespace PhysicalMemory {
     _IRQL_requires_max_(APC_LEVEL)
     PVOID64 GetPhysicalAddress(PVOID VirtualAddress, OPTIONAL PEPROCESS Process = NULL);
 
-    _IRQL_requires_max_(DISPATCH_LEVEL)
-    BOOLEAN ReadPhysicalMemory(IN PVOID64 PhysicalAddress, OUT PVOID Buffer, SIZE_T Length);
+    PVOID GetVirtualForPhysical(PVOID64 PhysicalAddress);
 
-    _IRQL_requires_max_(DISPATCH_LEVEL)
-    BOOLEAN WritePhysicalMemory(OUT PVOID64 PhysicalAddress, IN PVOID Buffer, SIZE_T Length);
+    _IRQL_requires_max_(APC_LEVEL)
+    BOOLEAN ReadPhysicalMemory(IN PVOID64 PhysicalAddress, OUT PVOID Buffer, SIZE_T Length, MEMORY_CACHING_TYPE CachingType);
+
+    _IRQL_requires_max_(APC_LEVEL)
+    BOOLEAN WritePhysicalMemory(OUT PVOID64 PhysicalAddress, IN PVOID Buffer, SIZE_T Length, MEMORY_CACHING_TYPE CachingType);
 }
 
 namespace Mdl {
@@ -176,27 +195,14 @@ namespace Mdl {
     _IRQL_requires_max_(APC_LEVEL)
     VOID UnlockPagesAndFreeMdl(PMDL Mdl);
 
-    // Maps the specified Mdl from specified process (or from kernel) 
-    // to address space of desired process:
-    //    - Mdl            : Mdl you want to map
-    //    - MappedMemory   : address of variable that receives the base address of mapped memory
-    //    - SrcProcess     : target process from which we want to map memory (or NULL to current process or if VA is a kernel address)
-    //    - DestProcess    : process to which memory should be mapped (or NULL to current process or to map to kernel memory)
-    //    - NeedLock       : whether need to lock memory pages by MmProbeAndLock[Process]Pages (if pages already locked, set it to FALSE)
-    //    - AccessMode     : KernelMode/UserMode - maps to kernel or current user address space
-    //    - Protect        : PAGE_*** protection rights for the mapped memory
-    //    - CacheType      : cache type of mapped memory
-    //    - UserRequestedAddress : if AccessMode == UserMode it specifies the target address to which memory will map,
-    //                             or NULL to choose address automatically (if AccessMode == KernelMode this param must be NULL)                              
-    // You can unmap memory with UnmapMdl function.
     _IRQL_requires_max_(APC_LEVEL)
     NTSTATUS MapMdl(
         IN PMDL Mdl,
-        OUT PVOID* MappedMemory,
-        OPTIONAL PEPROCESS SrcProcess,
-        OPTIONAL PEPROCESS DestProcess,
-        BOOLEAN NeedLock,
-        KPROCESSOR_MODE AccessMode = KernelMode, 
+        OUT PVOID* MappedMemory, // Receives the bease address of mapped memory
+        OPTIONAL PEPROCESS SrcProcess, // Set NULL to use the address space of current process 
+        OPTIONAL PEPROCESS DestProcess, // Set NULL to use the address space of current process
+        BOOLEAN NeedProbeAndLock,
+        KPROCESSOR_MODE MapToAddressSpace = KernelMode,
         ULONG Protect = PAGE_READWRITE,
         MEMORY_CACHING_TYPE CacheType = MmNonCached,
         OPTIONAL PVOID UserRequestedAddress = NULL    
@@ -212,27 +218,14 @@ namespace Mdl {
     };
     using PMAPPING_INFO = MAPPING_INFO*;
 
-    // Maps the memory from specified process (or from kernel) 
-    // to address space of desired process:
-    //    - MappingInfo    : output struct with mapping info (necessary for unmapping)
-    //    - SrcProcess     : target process from which we want to map memory (or NULL to current process or if VA is a kernel address)
-    //    - DestProcess    : process to which memory should be mapped (or NULL to current process or to map to kernel memory)
-    //    - VirtualAddress : usermode or kernelmode address of memory we want to map
-    //    - Size           : size in bytes of mapped block
-    //    - AccessMode     : KernelMode/UserMode - maps to kernel or current user address space
-    //    - Protect        : PAGE_*** protection rights for the mapped memory
-    //    - CacheType      : cache type of mapped memory
-    //    - UserRequestedAddress : if AccessMode == UserMode it specifies the target address to which memory will map,
-    //                             or NULL to choose address automatically (if AccessMode == KernelMode this param must be NULL)                              
-    // You can unmap memory with UnmapMemory function.
     _IRQL_requires_max_(APC_LEVEL)
     NTSTATUS MapMemory(
         OUT PMAPPING_INFO MappingInfo,
         OPTIONAL PEPROCESS SrcProcess,
         OPTIONAL PEPROCESS DestProcess,
-        IN PVOID VirtualAddress,
+        IN PVOID VirtualAddress, // Address in SrcProcess to map in the DestProcess
         ULONG Size,
-        KPROCESSOR_MODE AccessMode = KernelMode,
+        KPROCESSOR_MODE MapToAddressSpace = KernelMode,
         ULONG Protect = PAGE_READWRITE,
         MEMORY_CACHING_TYPE CacheType = MmNonCached,
         OPTIONAL PVOID UserRequestedAddress = NULL
